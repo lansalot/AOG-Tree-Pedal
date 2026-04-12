@@ -1,0 +1,152 @@
+bool engageBrake = false;
+
+// read value from Machine data and set 1 or zero according to list
+const uint8_t LOOP_TIME = 200; // 5hz
+uint32_t lastTime = LOOP_TIME;
+uint32_t currentTime = LOOP_TIME;
+uint32_t fifthTime = 0;
+uint16_t count = 0;
+
+// Comm checks
+uint8_t watchdogTimer = 0;    // make sure we are talking to AOG
+uint8_t serialResetTimer = 0; // if serial buffer is getting full, empty it
+
+// Communication with AgOpenGPS
+int16_t temp, EEread = 0;
+
+// Parsing PGN
+bool isPGNFound = false, isHeaderFound = false;
+uint8_t pgn = 0, dataLength = 0, idx = 0;
+int16_t tempHeader = 0;
+
+uint8_t AOG[] = {0x80, 0x81, 0x7f, 0xED, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0xCC};
+uint8_t skip = 0;
+
+// The variables used for storage
+uint8_t SC1To8 = 0;
+
+void setup()
+{
+    // set the baud rate
+    Serial.begin(115200);
+    // while (!Serial) { ; } // wait for serial port to connect. Needed for native USB
+
+    // set the pins to be outputs (pin numbers)
+    pinMode(LED_BUILTIN, OUTPUT);
+    for(int i = 0; i < 20; i++) {
+        delay(500);
+        digitalWrite(LED_BUILTIN, LOW);
+        delay(500);
+        digitalWrite(LED_BUILTIN,   HIGH);
+    }
+}
+
+void loop()
+{
+    // Loop triggers every 200 msec and sends back gyro heading, and roll, steer angle etc
+
+    currentTime = millis();
+
+    if (currentTime - lastTime >= LOOP_TIME)
+    {
+        lastTime = currentTime;
+
+        // If connection lost to AgOpenGPS, the watchdog will count up
+        if (watchdogTimer++ > 250)
+            watchdogTimer = 12;
+
+        // clean out serial buffer to prevent buffer overflow
+        if (serialResetTimer++ > 20)
+        {
+            while (Serial.available() > 0)
+                Serial.read();
+            serialResetTimer = 0;
+        }
+
+        // hydraulic lift
+        AOG[5] = 1;
+        AOG[6] = 1;
+        AOG[7] = 1;
+
+        // add the checksum
+        int16_t CK_A = 0;
+        for (uint8_t i = 2; i < sizeof(AOG) - 1; i++)
+        {
+            CK_A = (CK_A + AOG[i]);
+        }
+        AOG[sizeof(AOG) - 1] = CK_A;
+
+        Serial.write(AOG, sizeof(AOG));
+        Serial.flush(); // flush out buffer
+
+    } // end of timed loop
+
+    // Serial Receive
+    // Do we have a match with 0x8081?
+    if (Serial.available() > 4 && !isHeaderFound && !isPGNFound)
+    {
+        uint8_t temp = Serial.read();
+        if (tempHeader == 0x80 && temp == 0x81)
+        {
+            isHeaderFound = true;
+            tempHeader = 0;
+                            digitalWrite(LED_BUILTIN, 1);
+        }
+        else
+        {
+                            digitalWrite(LED_BUILTIN, 0);
+            tempHeader = temp; // save for next time
+            return;
+        }
+    }
+
+    // Find Source, PGN, and Length
+    if (Serial.available() > 2 && isHeaderFound && !isPGNFound)
+    {
+        Serial.read(); // The 7F or less
+        pgn = Serial.read();
+        dataLength = Serial.read();
+        isPGNFound = true;
+        idx = 0;
+    }
+
+    // The data package
+    if (Serial.available() > dataLength && isHeaderFound && isPGNFound)
+    {
+        if (pgn == 239) // EF Machine Data
+        {
+            delay(1000);
+            Serial.read();
+            Serial.read(); // actual speed times 4, single uint8_t
+
+            Serial.read();
+            Serial.read(); // bit 0 is right bit 1 is left
+
+            // just get the rest of bytes
+            Serial.read(); // high,low bytes
+            Serial.read();
+
+            SC1To8 = Serial.read(); // read relay control from AgOpenGPS
+            if (!engageBrake && SC1To8 == 15) {
+                engageBrake = true;
+                digitalWrite(LED_BUILTIN, engageBrake);
+            } else {
+                digitalWrite(LED_BUILTIN, !engageBrake);
+            }
+            Serial.println("\nhello\n");
+            Serial.read();
+
+            // Bit 13 CRC
+            Serial.read();
+            // reset watchdog
+            watchdogTimer = 0;
+
+            // Reset serial Watchdog
+            serialResetTimer = 0;
+
+            // reset for next pgn sentence
+            isHeaderFound = isPGNFound = false;
+            pgn = dataLength = 0;
+        }
+    }
+}
