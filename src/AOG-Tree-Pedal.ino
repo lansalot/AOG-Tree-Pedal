@@ -33,22 +33,44 @@ enum _RAMState
 };
 _RAMState ramState = Stop;
 #define Cytron_PWM 2
+#define Cytron_DIR 4
 #define goButton 34
+#define CURRENT_SENSOR_PIN A17
 
 void driveRAM(_RAMState state)
 {
+  static _RAMState lastState = _RAMState::Stop;
+
+  if (state != lastState)
+  {
+    // Serial.print("RAM state -> ");
+    // if (state == _RAMState::Push)
+    //   Serial.print("Push");
+    // else if (state == _RAMState::Retract)
+    //   Serial.print("Retract");
+    // else
+    //   Serial.print("Stop");
+
+    // Serial.print(" at ms=");
+    // Serial.println(millis());
+    lastState = state;
+  }
+
   if (state == _RAMState::Push)
   {
-    bitSet(PORTD, 4); // set the correct direction
+    //digitalWrite(Power_on_LED, LOW);
+    digitalWriteFast(Cytron_DIR, HIGH);
     analogWrite(Cytron_PWM, 255);
   }
   else if (state == _RAMState::Retract)
   {
-    bitClear(PORTD, 4);
+    //digitalWrite(Power_on_LED, LOW);
+    digitalWriteFast(Cytron_DIR, LOW);
     analogWrite(Cytron_PWM, 255);
   }
   else
   {
+    digitalWrite(Ethernet_Active_LED, LOW);
     analogWrite(Cytron_PWM, 0);
   }
 }
@@ -104,9 +126,14 @@ void setup()
   pinMode(GPSGREEN_LED, OUTPUT);
   pinMode(AUTOSTEER_STANDBY_LED, OUTPUT);
   pinMode(AUTOSTEER_ACTIVE_LED, OUTPUT);
+  pinMode(Cytron_PWM, OUTPUT);
+  pinMode(Cytron_DIR, OUTPUT);
   pinMode(goButton, INPUT_PULLUP);
+  pinMode(CURRENT_SENSOR_PIN, INPUT_DISABLE);
 
-  delay(10);
+
+  digitalWrite(GPSRED_LED, LOW);
+  digitalWrite(GPSGREEN_LED, HIGH);
   Serial.begin(115200);
   delay(10);
   Serial.println("Start setup");
@@ -133,16 +160,32 @@ void setup()
 
 void loop()
 {
-  if (millis() - ramStartTime >= ramMaxTime) {
-    driveRAM(_RAMState::Stop);
+  float sensorSample = (float)analogRead(CURRENT_SENSOR_PIN);
+  sensorSample = (abs(775 - sensorSample)) * 0.5;
+  int8_t sensorReading = sensorReading * 0.7 + sensorSample * 0.3;
+  sensorReading = min(sensorReading, 255);
+  if (sensorReading > 120) // current cutoff, make this variable
+  {
+    Serial.println("Current sensor reading: " + String(sensorReading) + " so cutting off!");
+    movingRam = false;
+    digitalWrite(Power_on_LED, HIGH);
+    ramState = _RAMState::Stop;
+    driveRAM(ramState);
+  }
+  if (movingRam && (millis() - ramStartTime >= ramMaxTime))
+  {
+    movingRam = false;
+    ramState = _RAMState::Stop;
+    driveRAM(ramState);
   }
   // Loop triggers every 200 msec and sends back gyro heading, and roll, steer angle etc
   if (digitalRead(goButton) == LOW && engageBrake)
   {
-    Serial.println("Button pressed, disabling breaking and starting ram");
     engageBrake = false;
+    ramState = _RAMState::Retract;
     ramStartTime = millis();
-    driveRAM(_RAMState::Retract);
+    movingRam = true;
+    driveRAM(ramState);
   }
   currentTime = millis();
 

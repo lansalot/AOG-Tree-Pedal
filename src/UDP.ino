@@ -26,9 +26,11 @@ void ReceiveUdp()
         {
           // brake-state has changed!
           engageBrake = true;
+          ramState = _RAMState::Push;
           ramStartTime = millis();
-          driveRAM(_RAMState::Push);
-          Serial.println("Braking/pushing ram");
+          movingRam = true;
+          driveRAM(ramState);
+          digitalWrite(Ethernet_Active_LED, LOW);
         }
 
         // reset watchdog
