@@ -22,7 +22,6 @@ uint8_t currentState = 1, reading, previous = 0;
 uint8_t lastSteerSwitch = 0;
 bool engageBrake = false;
 bool movingRam = false;
-uint16_t ramMaxTime = 1000; // milliseconds to push/pull ram
 uint32_t ramStartTime = millis();
 byte Sections = 0;
 enum _RAMState
@@ -58,13 +57,13 @@ void driveRAM(_RAMState state)
 
   if (state == _RAMState::Push)
   {
-    //digitalWrite(Power_on_LED, LOW);
+    // digitalWrite(Power_on_LED, LOW);
     digitalWriteFast(Cytron_DIR, HIGH);
     analogWrite(Cytron_PWM, 255);
   }
   else if (state == _RAMState::Retract)
   {
-    //digitalWrite(Power_on_LED, LOW);
+    // digitalWrite(Power_on_LED, LOW);
     digitalWriteFast(Cytron_DIR, LOW);
     analogWrite(Cytron_PWM, 255);
   }
@@ -83,6 +82,13 @@ struct ConfigIP
   uint8_t ipThree = 5;
 };
 ConfigIP networkAddress; // 3 bytes
+
+struct Config
+{
+  uint8_t ramMaxTime = 100; // multiplied by 10 to get milliseconds, so max time is 2550 msec
+  uint8_t currentCutOff = 12; // multiplied by 10 to get value
+};
+Config aogConfig; // 4 bytes
 
 // IP & MAC address of this module of this module
 byte Eth_myip[4] = {0, 0, 0, 0}; // This is now set via AgIO
@@ -131,7 +137,6 @@ void setup()
   pinMode(goButton, INPUT_PULLUP);
   pinMode(CURRENT_SENSOR_PIN, INPUT_DISABLE);
 
-
   digitalWrite(GPSRED_LED, LOW);
   digitalWrite(GPSGREEN_LED, HIGH);
   Serial.begin(115200);
@@ -144,11 +149,13 @@ void setup()
   {
     EEPROM.put(0, EEP_Ident);
     EEPROM.put(10, networkAddress);
+    EEPROM.put(20, aogConfig);
     Serial.println("Writing default EEPROM settings");
   }
   else
   {
     EEPROM.get(10, networkAddress); // read the Settings
+    EEPROM.get(20, aogConfig);     // read the Settings
     Serial.println("EEPROM settings loaded");
   }
 
@@ -164,7 +171,7 @@ void loop()
   sensorSample = (abs(775 - sensorSample)) * 0.5;
   int8_t sensorReading = sensorReading * 0.7 + sensorSample * 0.3;
   sensorReading = min(sensorReading, 255);
-  if (sensorReading > 120) // current cutoff, make this variable
+  if (sensorReading > aogConfig.currentCutOff * 10) // current cutoff, make this variable
   {
     Serial.println("Current sensor reading: " + String(sensorReading) + " so cutting off!");
     movingRam = false;
@@ -172,7 +179,7 @@ void loop()
     ramState = _RAMState::Stop;
     driveRAM(ramState);
   }
-  if (movingRam && (millis() - ramStartTime >= ramMaxTime))
+  if (movingRam && (millis() - ramStartTime >= (aogConfig.ramMaxTime * 10)))
   {
     movingRam = false;
     ramState = _RAMState::Stop;

@@ -21,7 +21,7 @@ void ReceiveUdp()
       if (machineUdpData[3] == 0xEF)
       { // 239
         Sections = machineUdpData[11];
-        //if (Sections != 0 && Sections != 15 && !engageBrake)
+        // if (Sections != 0 && Sections != 15 && !engageBrake)
         if (Sections == 15 && !engageBrake)
         {
           // brake-state has changed!
@@ -88,6 +88,15 @@ void ReceiveUdp()
           // off to AOG
           SendUdp(scanReply, sizeof(scanReply), ipDest, portDest);
         }
+      }
+
+      // machine data (use original agio)
+      else if (machineUdpData[3] == 238)
+      {
+        aogConfig.ramMaxTime = machineUdpData[9];
+        aogConfig.currentCutOff = machineUdpData[10];
+        EEPROM.put(20, aogConfig);
+        Serial.println("Updated config from AgIO, ramMaxTime: " + String(aogConfig.ramMaxTime) + " currentCutOff: " + String(aogConfig.currentCutOff));
       }
     } // end if 80 81 7F
   }
