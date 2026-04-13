@@ -20,6 +20,7 @@ uint8_t watchdogTimer = 20; // make sure we are talking to AOG
 // Ram section   ***********************************************************************************************************
 uint8_t currentState = 1, reading, previous = 0;
 uint8_t lastSteerSwitch = 0;
+int8_t sensorReading = 0;
 bool engageBrake = false;
 bool movingRam = false;
 uint32_t ramStartTime = millis();
@@ -87,6 +88,7 @@ struct Config
 {
   uint8_t ramMaxTime = 100; // multiplied by 10 to get milliseconds, so max time is 2550 msec
   uint8_t currentCutOff = 12; // multiplied by 10 to get value
+  uint8_t sectionMask = 15;
 };
 Config aogConfig; // 4 bytes
 
@@ -122,7 +124,7 @@ int16_t EEread = 0;
 // Setup procedure ------------------------
 void setup()
 {
-  delay(500);               // Small delay so serial can monitor start up
+  delay(5000);               // Small delay so serial can monitor start up
   set_arm_clock(150000000); // Set CPU speed to 150mhz
 
   pinMode(GGAReceivedLED, OUTPUT);
@@ -156,12 +158,12 @@ void setup()
   {
     EEPROM.get(10, networkAddress); // read the Settings
     EEPROM.get(20, aogConfig);     // read the Settings
-    Serial.println("EEPROM settings loaded");
   }
-
+  
   Serial.println("\r\nStarting Ethernet...");
   EthernetStart();
-
+  
+  Serial.println("ramMaxTime: " + String(aogConfig.ramMaxTime * 10) + " currentCutOff: " + String(aogConfig.currentCutOff * 10) + " sectionMask: " + String(aogConfig.sectionMask));
   Serial.println("\r\nEnd setup, waiting for GPS...\r\n");
 }
 
@@ -169,7 +171,7 @@ void loop()
 {
   float sensorSample = (float)analogRead(CURRENT_SENSOR_PIN);
   sensorSample = (abs(775 - sensorSample)) * 0.5;
-  int8_t sensorReading = sensorReading * 0.7 + sensorSample * 0.3;
+  sensorReading = sensorReading * 0.7 + sensorSample * 0.3;
   sensorReading = min(sensorReading, 255);
   if (sensorReading > aogConfig.currentCutOff * 10) // current cutoff, make this variable
   {
