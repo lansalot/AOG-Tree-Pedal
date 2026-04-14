@@ -24,6 +24,7 @@ int8_t sensorReading = 0;
 bool engageBrake = false;
 bool movingRam = false;
 uint32_t ramStartTime = millis();
+uint32_t brakeReleaseTime = 0;
 byte Sections = 0;
 enum _RAMState
 {
@@ -93,6 +94,7 @@ struct Config
   uint8_t ramMaxTime = 100;   // multiplied by 10 to get milliseconds, so max time is 2550 msec
   uint8_t currentCutOff = 12; // multiplied by 10 to get value
   uint8_t sectionMask = 15;
+  uint8_t deadTime = 30; // seconds to ignore UDP push after goButton release
 };
 Config aogConfig; // 4 bytes
 
@@ -164,12 +166,19 @@ void setup()
   {
     EEPROM.get(10, networkAddress); // read the Settings
     EEPROM.get(20, aogConfig);      // read the Settings
+
+    // Guard against stale EEPROM content from older config layouts.
+    if (aogConfig.deadTime > 60)
+    {
+      aogConfig.deadTime = 3;
+      EEPROM.put(20, aogConfig);
+    }
   }
 
   Serial.println("\r\nStarting Ethernet...");
   EthernetStart();
 
-  Serial.println("ramMaxTime: " + String(aogConfig.ramMaxTime * 10) + " currentCutOff: " + String(aogConfig.currentCutOff * 10) + " sectionMask: " + String(aogConfig.sectionMask));
+  Serial.println("ramMaxTime: " + String(aogConfig.ramMaxTime * 10) + " currentCutOff: " + String(aogConfig.currentCutOff * 10) + " sectionMask: " + String(aogConfig.sectionMask) + " deadTime: " + String(aogConfig.deadTime));
   Serial.println("\r\nEnd setup, waiting for GPS...\r\n");
 }
 
@@ -197,6 +206,7 @@ void loop()
   if (digitalRead(goButton) == LOW && engageBrake)
   {
     engageBrake = false;
+    brakeReleaseTime = millis();
     ramState = _RAMState::Retract;
     ramStartTime = millis();
     movingRam = true;

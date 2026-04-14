@@ -10,7 +10,6 @@ void ReceiveUdp()
   {
     return;
   }
-
   uint16_t len = Eth_udpMachineBoard.parsePacket();
 
   // Check for len > 4, because we check byte 0, 1, 3 and 3
@@ -23,9 +22,11 @@ void ReceiveUdp()
       if (machineUdpData[3] == 0xEF)
       { // 239
         Sections = machineUdpData[11];
+        bool deadTimeActive = (!engageBrake) && ((millis() - brakeReleaseTime) < ((uint32_t)aogConfig.deadTime * 1000UL));
         bool enteredTriggerSection = (Sections == aogConfig.sectionMask) && (lastSections != aogConfig.sectionMask);
+        // Serial.println("Received section data: " + String(Sections, BIN) + " enteredTriggerSection: " + String(enteredTriggerSection) + " deadTimeActive: " + String(deadTimeActive) + " engageBrake: " + String(engageBrake));
 
-        if (enteredTriggerSection && !engageBrake)
+        if (enteredTriggerSection && !engageBrake && !deadTimeActive)
         {
           // brake-state has changed!
           engageBrake = true;
@@ -101,8 +102,9 @@ void ReceiveUdp()
         aogConfig.ramMaxTime = machineUdpData[9];
         aogConfig.currentCutOff = machineUdpData[10];
         aogConfig.sectionMask = machineUdpData[11];
+        aogConfig.deadTime = machineUdpData[12];
         EEPROM.put(20, aogConfig);
-        Serial.println("Updated config from AgIO, ramMaxTime: " + String(aogConfig.ramMaxTime) + " currentCutOff: " + String(aogConfig.currentCutOff) + " sectionMask: " + String(aogConfig.sectionMask));
+        Serial.println("Updated config from AgIO, ramMaxTime: " + String(aogConfig.ramMaxTime) + " currentCutOff: " + String(aogConfig.currentCutOff) + " sectionMask: " + String(aogConfig.sectionMask) + " deadTime: " + String(aogConfig.deadTime));
       }
     } // end if 80 81 7F
   }
