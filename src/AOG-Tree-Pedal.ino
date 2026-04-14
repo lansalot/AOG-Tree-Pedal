@@ -29,12 +29,16 @@ enum _RAMState
 {
   Push,
   Retract,
-  Stop
+  Stop,
+  ManualPush,
+  ManualRetract
 };
 _RAMState ramState = Stop;
 #define Cytron_PWM 2
 #define Cytron_DIR 4
 #define goButton 34
+#define ManualPush_Pin 32
+#define ManualRetract_Pin 37
 #define CURRENT_SENSOR_PIN A17
 
 void driveRAM(_RAMState state)
@@ -56,13 +60,13 @@ void driveRAM(_RAMState state)
     lastState = state;
   }
 
-  if (state == _RAMState::Push)
+  if (state == _RAMState::Push || state == _RAMState::ManualPush)
   {
     // digitalWrite(Power_on_LED, LOW);
     digitalWriteFast(Cytron_DIR, HIGH);
     analogWrite(Cytron_PWM, 255);
   }
-  else if (state == _RAMState::Retract)
+  else if (state == _RAMState::Retract || state == _RAMState::ManualRetract)
   {
     // digitalWrite(Power_on_LED, LOW);
     digitalWriteFast(Cytron_DIR, LOW);
@@ -86,7 +90,7 @@ ConfigIP networkAddress; // 3 bytes
 
 struct Config
 {
-  uint8_t ramMaxTime = 100; // multiplied by 10 to get milliseconds, so max time is 2550 msec
+  uint8_t ramMaxTime = 100;   // multiplied by 10 to get milliseconds, so max time is 2550 msec
   uint8_t currentCutOff = 12; // multiplied by 10 to get value
   uint8_t sectionMask = 15;
 };
@@ -124,7 +128,7 @@ int16_t EEread = 0;
 // Setup procedure ------------------------
 void setup()
 {
-  delay(5000);               // Small delay so serial can monitor start up
+  delay(5000);              // Small delay so serial can monitor start up
   set_arm_clock(150000000); // Set CPU speed to 150mhz
 
   pinMode(GGAReceivedLED, OUTPUT);
@@ -137,6 +141,8 @@ void setup()
   pinMode(Cytron_PWM, OUTPUT);
   pinMode(Cytron_DIR, OUTPUT);
   pinMode(goButton, INPUT_PULLUP);
+  pinMode(ManualPush_Pin, INPUT_PULLUP);
+  pinMode(ManualRetract_Pin, INPUT_PULLUP);
   pinMode(CURRENT_SENSOR_PIN, INPUT_DISABLE);
 
   digitalWrite(GPSRED_LED, LOW);
@@ -157,12 +163,12 @@ void setup()
   else
   {
     EEPROM.get(10, networkAddress); // read the Settings
-    EEPROM.get(20, aogConfig);     // read the Settings
+    EEPROM.get(20, aogConfig);      // read the Settings
   }
-  
+
   Serial.println("\r\nStarting Ethernet...");
   EthernetStart();
-  
+
   Serial.println("ramMaxTime: " + String(aogConfig.ramMaxTime * 10) + " currentCutOff: " + String(aogConfig.currentCutOff * 10) + " sectionMask: " + String(aogConfig.sectionMask));
   Serial.println("\r\nEnd setup, waiting for GPS...\r\n");
 }
@@ -187,7 +193,7 @@ void loop()
     ramState = _RAMState::Stop;
     driveRAM(ramState);
   }
-  // Loop triggers every 200 msec and sends back gyro heading, and roll, steer angle etc
+
   if (digitalRead(goButton) == LOW && engageBrake)
   {
     engageBrake = false;
@@ -196,6 +202,38 @@ void loop()
     movingRam = true;
     driveRAM(ramState);
   }
+
+  bool manualPushPressed = (digitalRead(ManualPush_Pin) == LOW);
+  bool manualRetractPressed = (digitalRead(ManualRetract_Pin) == LOW);
+  bool autoMotionActive = (ramState == _RAMState::Push || ramState == _RAMState::Retract);
+
+  // Manual control is hold-to-run, but only when auto motion is not active.
+  if (!autoMotionActive)
+  {
+    if (manualPushPressed && !manualRetractPressed)
+    {
+      if (ramState != _RAMState::ManualPush)
+      {
+        ramState = _RAMState::ManualPush;
+        driveRAM(ramState);
+      }
+    }
+    else if (manualRetractPressed && !manualPushPressed)
+    {
+      if (ramState != _RAMState::ManualRetract)
+      {
+        ramState = _RAMState::ManualRetract;
+        driveRAM(ramState);
+      }
+    }
+    else if (ramState == _RAMState::ManualPush || ramState == _RAMState::ManualRetract)
+    {
+      // Stop when button is released, or when both manual buttons are pressed.
+      ramState = _RAMState::Stop;
+      driveRAM(ramState);
+    }
+  }
+
   currentTime = millis();
 
   if (currentTime - lastTime >= LOOP_TIME)
