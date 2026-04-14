@@ -3,6 +3,8 @@
 #define UDP_h
 void ReceiveUdp()
 {
+  static uint8_t lastSections = 0xFF;
+
   // When ethernet is not running, return directly. parsePacket() will block when we don't
   if (!Ethernet_running)
   {
@@ -21,7 +23,9 @@ void ReceiveUdp()
       if (machineUdpData[3] == 0xEF)
       { // 239
         Sections = machineUdpData[11];
-        if (Sections == aogConfig.sectionMask && !engageBrake)
+        bool enteredTriggerSection = (Sections == aogConfig.sectionMask) && (lastSections != aogConfig.sectionMask);
+
+        if (enteredTriggerSection && !engageBrake)
         {
           // brake-state has changed!
           engageBrake = true;
@@ -31,6 +35,8 @@ void ReceiveUdp()
           driveRAM(ramState);
           digitalWrite(Ethernet_Active_LED, LOW);
         }
+
+        lastSections = Sections;
 
         // reset watchdog
         watchdogTimer = 0;
